@@ -1,5 +1,6 @@
 # Experiment 8 - trained on Cityscapes day time
-# Experiment 10 - trained on Cityscapes day time + Cityscapes day time translated to night
+# Experiment 10 - trained on Cityscapes day time + Cityscapes day time translated to night (may be corrupted)
+# Experiment 12 - trained on Cityscapes day time translated to night
 #
 #
 #
