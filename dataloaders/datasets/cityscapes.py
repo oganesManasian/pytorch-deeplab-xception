@@ -65,7 +65,8 @@ class CityscapesSegmentation(data.Dataset):
         _target = Image.fromarray(_tmp)
 
         # sample = {'image': _img, 'label': _target}
-        sample = {'image': _img, 'label': _target, 'path': img_path, 'synthetic': }
+        is_synthetic = 1 if "night" in img_path else 0
+        sample = {'image': _img, 'label': _target, 'path': img_path, 'synthetic': is_synthetic}
 
         if self.split.startswith('train'):  # Can be 'train' or 'train_combined' or 'train_night'
             return self.transform_tr(sample)
