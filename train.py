@@ -1,3 +1,9 @@
+# Experiment 8 - trained on Cityscapes day time
+# Experiment 10 - trained on Cityscapes day time + Cityscapes day time translated to night
+#
+#
+#
+
 import argparse
 import os
 import numpy as np
@@ -14,6 +20,7 @@ from utils.saver import Saver
 from utils.summaries import TensorboardSummary
 from utils.metrics import Evaluator
 
+
 class Trainer(object):
     def __init__(self, args):
         self.args = args
@@ -24,7 +31,7 @@ class Trainer(object):
         # Define Tensorboard Summary
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
-        
+
         # Define Dataloader
         kwargs = {'num_workers': args.workers, 'pin_memory': True}
         self.train_loader, self.val_loader, self.test_loader, self.nclass = make_data_loader(args, **kwargs)
@@ -46,7 +53,7 @@ class Trainer(object):
         # Define Criterion
         # whether to use class balanced weights
         if args.use_balanced_weights:
-            classes_weights_path = os.path.join(Path.db_root_dir(args.dataset), args.dataset+'_classes_weights.npy')
+            classes_weights_path = os.path.join(Path.db_root_dir(args.dataset), args.dataset + '_classes_weights.npy')
             if os.path.isfile(classes_weights_path):
                 weight = np.load(classes_weights_path)
             else:
@@ -56,24 +63,26 @@ class Trainer(object):
             weight = None
         self.criterion = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
-        
+
         # Define Evaluator
         self.evaluator = Evaluator(self.nclass)
         # Define lr scheduler
         self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
-                                            args.epochs, len(self.train_loader))
+                                      args.epochs, len(self.train_loader))
 
         # Using cuda
+        self.gpu_ids = args.gpu_ids[0]
         if args.cuda:
             self.model = torch.nn.DataParallel(self.model, device_ids=self.args.gpu_ids)
             patch_replication_callback(self.model)
-            self.model = self.model.cuda()
+            # self.model = self.model.cuda()
+            self.model = self.model.to(self.gpu_ids)  # My change to make it work on cuda:3
 
         # Resuming checkpoint
         self.best_pred = 0.0
         if args.resume is not None:
             if not os.path.isfile(args.resume):
-                raise RuntimeError("=> no checkpoint found at '{}'" .format(args.resume))
+                raise RuntimeError("=> no checkpoint found at '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             if args.cuda:
@@ -95,10 +104,12 @@ class Trainer(object):
         self.model.train()
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
+
         for i, sample in enumerate(tbar):
             image, target = sample['image'], sample['label']
             if self.args.cuda:
-                image, target = image.cuda(), target.cuda()
+                # image, target = image.cuda(), target.cuda()
+                image, target = image.to(self.gpu_ids), target.to(self.gpu_ids)  # My change to make it work on cuda:3
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
             output = self.model(image)
@@ -128,7 +139,6 @@ class Trainer(object):
                 'best_pred': self.best_pred,
             }, is_best)
 
-
     def validation(self, epoch):
         self.model.eval()
         self.evaluator.reset()
@@ -137,7 +147,8 @@ class Trainer(object):
         for i, sample in enumerate(tbar):
             image, target = sample['image'], sample['label']
             if self.args.cuda:
-                image, target = image.cuda(), target.cuda()
+                # image, target = image.cuda(), target.cuda()
+                image, target = image.to(self.gpu_ids), target.to(self.gpu_ids)  # My change to make it work on cuda:3
             with torch.no_grad():
                 output = self.model(image)
             loss = self.criterion(output, target)
@@ -175,6 +186,7 @@ class Trainer(object):
                 'best_pred': self.best_pred,
             }, is_best)
 
+
 def main():
     parser = argparse.ArgumentParser(description="PyTorch DeeplabV3Plus Training")
     parser.add_argument('--backbone', type=str, default='resnet',
@@ -182,11 +194,11 @@ def main():
                         help='backbone name (default: resnet)')
     parser.add_argument('--out-stride', type=int, default=16,
                         help='network output stride (default: 8)')
-    parser.add_argument('--dataset', type=str, default='pascal',
-                        choices=['pascal', 'coco', 'cityscapes'],
-                        help='dataset name (default: pascal)')
-    parser.add_argument('--use-sbd', action='store_true', default=True,
-                        help='whether to use SBD dataset (default: True)')
+    parser.add_argument('--dataset', type=str, default='cityscapes',
+                        choices=['pascal', 'coco', 'cityscapes', 'synthia'],
+                        help='dataset name (default: cityscapes)')
+    parser.add_argument('--use-sbd', action='store_true', default=False,
+                        help='whether to use SBD dataset (default: False)')
     parser.add_argument('--workers', type=int, default=4,
                         metavar='N', help='dataloader threads')
     parser.add_argument('--base-size', type=int, default=513,
@@ -208,7 +220,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=None,
                         metavar='N', help='input batch size for \
                                 training (default: auto)')
-    parser.add_argument('--test-batch-size', type=int, default=None,
+    parser.add_argument('--test_batch-size', type=int, default=None,
                         metavar='N', help='input batch size for \
                                 testing (default: auto)')
     parser.add_argument('--use-balanced-weights', action='store_true', default=False,
@@ -226,11 +238,11 @@ def main():
     parser.add_argument('--nesterov', action='store_true', default=False,
                         help='whether use nesterov (default: False)')
     # cuda, seed and logging
-    parser.add_argument('--no-cuda', action='store_true', default=
-                        False, help='disables CUDA training')
-    parser.add_argument('--gpu-ids', type=str, default='0',
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
+    parser.add_argument('--gpu-ids', type=str, required=True,
                         help='use which gpu to train, must be a \
-                        comma-separated list of integers only (default=0)')
+                        comma-separated list of integers only')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     # checking point
@@ -243,9 +255,15 @@ def main():
                         help='finetuning on a different dataset')
     # evaluation option
     parser.add_argument('--eval-interval', type=int, default=1,
-                        help='evaluuation interval (default: 1)')
+                        help='evaluation interval (default: 1)')
     parser.add_argument('--no-val', action='store_true', default=False,
                         help='skip validation during training')
+    parser.add_argument('--train-data', type=str, default=None, required=True,
+                        help='put the name of folder containing images to train on')
+    parser.add_argument('--val-data', type=str, default='val',
+                        help='put the name of folder containing images to validate on')
+    parser.add_argument('--test-data', type=str, default='val',
+                        help='put the name of folder containing images to test on')
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -267,6 +285,7 @@ def main():
             'coco': 30,
             'cityscapes': 200,
             'pascal': 50,
+            'synthia': 100,
         }
         args.epochs = epoches[args.dataset.lower()]
 
@@ -281,12 +300,12 @@ def main():
             'coco': 0.1,
             'cityscapes': 0.01,
             'pascal': 0.007,
+            'synthia': 0.01
         }
         args.lr = lrs[args.dataset.lower()] / (4 * len(args.gpu_ids)) * args.batch_size
 
-
     if args.checkname is None:
-        args.checkname = 'deeplab-'+str(args.backbone)
+        args.checkname = 'deeplab-' + str(args.backbone)
     print(args)
     torch.manual_seed(args.seed)
     trainer = Trainer(args)
@@ -299,5 +318,6 @@ def main():
 
     trainer.writer.close()
 
+
 if __name__ == "__main__":
-   main()
+    main()

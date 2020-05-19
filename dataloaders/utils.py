@@ -21,12 +21,15 @@ def decode_segmap(label_mask, dataset, plot=False):
     Returns:
         (np.ndarray, optional): the resulting decoded color image.
     """
-    if dataset == 'pascal' or dataset == 'coco':
-        n_classes = 21
-        label_colours = get_pascal_labels()
-    elif dataset == 'cityscapes':
+    if dataset == 'cityscapes' or dataset == 'cityscapes_local':
         n_classes = 19
         label_colours = get_cityscapes_labels()
+    elif dataset == 'synthia':  # Same as cityscapes
+        n_classes = 19
+        label_colours = get_cityscapes_labels()
+    # elif dataset == 'pascal' or dataset == 'coco':
+    #     n_classes = 21
+    #     label_colours = get_pascal_labels()
     else:
         raise NotImplementedError
 
@@ -48,6 +51,7 @@ def decode_segmap(label_mask, dataset, plot=False):
         return rgb
 
 
+# TODO add possibility to use cityscapes and synthia
 def encode_segmap(mask):
     """Encode segmentation label images as pascal classes
     Args:

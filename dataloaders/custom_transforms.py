@@ -24,7 +24,8 @@ class Normalize(object):
         img /= self.std
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class ToTensor(object):
@@ -43,7 +44,8 @@ class ToTensor(object):
         mask = torch.from_numpy(mask).float()
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class RandomHorizontalFlip(object):
@@ -55,7 +57,8 @@ class RandomHorizontalFlip(object):
             mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class RandomRotate(object):
@@ -70,7 +73,8 @@ class RandomRotate(object):
         mask = mask.rotate(rotate_degree, Image.NEAREST)
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class RandomGaussianBlur(object):
@@ -82,7 +86,8 @@ class RandomGaussianBlur(object):
                 radius=random.random()))
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class RandomScaleCrop(object):
@@ -119,7 +124,8 @@ class RandomScaleCrop(object):
         mask = mask.crop((x1, y1, x1 + self.crop_size, y1 + self.crop_size))
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 
 class FixScaleCrop(object):
@@ -146,7 +152,8 @@ class FixScaleCrop(object):
         mask = mask.crop((x1, y1, x1 + self.crop_size, y1 + self.crop_size))
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}
 
 class FixedResize(object):
     def __init__(self, size):
@@ -162,4 +169,5 @@ class FixedResize(object):
         mask = mask.resize(self.size, Image.NEAREST)
 
         return {'image': img,
-                'label': mask}
+                'label': mask,
+                'path': sample['path']}

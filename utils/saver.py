@@ -5,7 +5,6 @@ from collections import OrderedDict
 import glob
 
 class Saver(object):
-
     def __init__(self, args):
         self.args = args
         self.directory = os.path.join('run', args.dataset, args.checkname)
