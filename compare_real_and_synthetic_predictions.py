@@ -173,7 +173,7 @@ def main():
     real_n = 0
     synthetic_n = 0
     for i, sample in enumerate(tbar):
-        image, target, path, is_synthetic = sample['image'], sample['label'], sample['path'][0], sample['synthetic'][0]
+        image, target, path, is_synthetic = sample['image'], sample['label'], sample['path'][0], sample['is_synthetic'][0]
 
         label = "synthetic" if is_synthetic else "real"
         if label == 'real':

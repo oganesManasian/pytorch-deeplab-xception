@@ -89,8 +89,12 @@ def main():
     # Define on what to test
     parser.add_argument('--train-data', type=str, default="train",
                         help='put the name of folder containing images to train on')
+    parser.add_argument('--val-data', type=str, default='val',
+                        help='put the name of folder containing images to validate on')
     parser.add_argument('--test-data', type=str, default=None, required=True,
                         help='put the name of folder containing images to test on')
+    parser.add_argument('--use-gan', type=bool, default=False,
+                        help='Whether to use discriminator for training')
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -154,7 +158,6 @@ def main():
     else:
         weight = None
     criterion = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
-
 
     # Test
     model.eval()

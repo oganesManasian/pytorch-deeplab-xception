@@ -24,6 +24,13 @@ class CityscapesSegmentation(data.Dataset):
         self.annotations_base = os.path.join(self.root, 'gtFine', self.split)
 
         self.files[split] = self.recursive_glob(rootdir=self.images_base, suffix='.png')
+        if args.use_gan:
+            # Make the batch to have equal number of samples generated from true and fake images
+            # Works only if there are equal number of true and fake images in the dataset
+            self.files[split].sort(key=lambda path: path.split("/")[-1])
+
+        # for path in self.files[split][:8]:
+        #     print(path)
 
         self.void_classes = [0, 1, 2, 3, 4, 5, 6, 9, 10, 14, 15, 16, 18, 29, 30, -1]
         self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
@@ -65,8 +72,8 @@ class CityscapesSegmentation(data.Dataset):
         _target = Image.fromarray(_tmp)
 
         # sample = {'image': _img, 'label': _target}
-        is_synthetic = 1 if "night" in img_path else 0
-        sample = {'image': _img, 'label': _target, 'path': img_path, 'synthetic': is_synthetic}
+        is_synthetic = True if "night" in img_path else False
+        sample = {'image': _img, 'label': _target, 'path': img_path, 'is_synthetic': is_synthetic}
 
         if self.split.startswith('train'):  # Can be 'train' or 'train_combined' or 'train_night'
             return self.transform_tr(sample)

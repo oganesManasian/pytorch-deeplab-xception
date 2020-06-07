@@ -1,7 +1,7 @@
-# Experiment 8 - trained on Cityscapes day time
-# Experiment 10 - trained on Cityscapes day time + Cityscapes day time translated to night (may be corrupted)
-# Experiment 12 - trained on Cityscapes day time translated to night
-#
+# Experiment 8 - trained on Cityscapes day time (train )
+# Experiment 9 - trained on Cityscapes day time + Cityscapes day time translated to night (balanced dataset) (train_combined2 2092 )
+# Experiment 10 - trained on Cityscapes day time translated to night (train_bight)
+# Experiment 11 - trained on Cityscapes day time + Cityscapes day time translated to night (GAN approach on balanced dataset) (tran_gan)
 #
 #
 
@@ -14,7 +14,8 @@ from mypath import Path
 from dataloaders import make_data_loader
 from modeling.sync_batchnorm.replicate import patch_replication_callback
 from modeling.deeplab import *
-from utils.loss import SegmentationLosses
+from modeling.discriminator import DiscriminatorTorch
+from utils.loss import SegmentationLosses, GANLosses
 from utils.calculate_weights import calculate_weigths_labels
 from utils.lr_scheduler import LR_Scheduler
 from utils.saver import Saver
@@ -23,6 +24,7 @@ from utils.metrics import Evaluator
 
 
 class Trainer(object):
+
     def __init__(self, args):
         self.args = args
 
@@ -37,7 +39,7 @@ class Trainer(object):
         kwargs = {'num_workers': args.workers, 'pin_memory': True}
         self.train_loader, self.val_loader, self.test_loader, self.nclass = make_data_loader(args, **kwargs)
 
-        # Define network
+        # Define segmentation network
         model = DeepLab(num_classes=self.nclass,
                         backbone=args.backbone,
                         output_stride=args.out_stride,
@@ -62,22 +64,34 @@ class Trainer(object):
             weight = torch.from_numpy(weight.astype(np.float32))
         else:
             weight = None
+
         self.criterion = SegmentationLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
-
-        # Define Evaluator
-        self.evaluator = Evaluator(self.nclass)
-        # Define lr scheduler
-        self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
-                                      args.epochs, len(self.train_loader))
 
         # Using cuda
         self.gpu_ids = args.gpu_ids[0]
         if args.cuda:
             self.model = torch.nn.DataParallel(self.model, device_ids=self.args.gpu_ids)
             patch_replication_callback(self.model)
-            # self.model = self.model.cuda()
-            self.model = self.model.to(self.gpu_ids)  # My change to make it work on cuda:3
+            # self.model = self.model.to(self.gpu_ids)  # My change to make it work on cuda:3
+            self.model = self.model.to(self.gpu_ids)
+
+        if args.use_gan:
+            # Define discriminator (2 classes: real or fake)
+            discriminator = DiscriminatorTorch(num_classes=2, use_pretrained=False)
+            optimizer_discriminator = torch.optim.SGD(discriminator.parameters(),
+                                                      lr=args.lr_discriminator,
+                                                      momentum=args.momentum_discriminator,
+                                                      weight_decay=args.weight_decay_discriminator)
+            self.discriminator, self.optimizer_discriminator = discriminator, optimizer_discriminator
+            self.criterion_gan = GANLosses(cuda=args.cuda)
+            self.discriminator = self.discriminator.to(self.gpu_ids)
+
+        # Define Evaluator
+        self.evaluator = Evaluator(self.nclass)
+        # Define lr scheduler
+        self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
+                                      args.epochs, len(self.train_loader))
 
         # Resuming checkpoint
         self.best_pred = 0.0
@@ -100,25 +114,38 @@ class Trainer(object):
         if args.ft:
             args.start_epoch = 0
 
-    def training(self, epoch):
-        train_loss = 0.0
+    def training_segmentation(self, epoch):
+        train_loss_total = 0.0
+        generator_loss_total = 0.0
         self.model.train()
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
 
         for i, sample in enumerate(tbar):
-            image, target = sample['image'], sample['label']
+            image, target, is_synthetic = sample['image'], sample['label'], sample['is_synthetic']
             if self.args.cuda:
-                # image, target = image.cuda(), target.cuda()
-                image, target = image.to(self.gpu_ids), target.to(self.gpu_ids)  # My change to make it work on cuda:3
+                # My change to make it work on cuda:3
+                image, target, is_synthetic = \
+                    image.to(self.gpu_ids), target.to(self.gpu_ids), is_synthetic.to(self.gpu_ids)
+
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
             output = self.model(image)
             loss = self.criterion(output, target)
+
+            if self.args.use_gan:
+                output_on_fake = output[is_synthetic]  # Extract only segmentations done on synthetic images
+                # with torch.no_grad():  # TODO check that freezes needed discriminator
+                predicted_on_fake = self.discriminator(output_on_fake)
+                loss_generator = self.criterion_gan.generator_loss(predicted_on_fake)
+                generator_loss_total += loss_generator.item()
+                loss += loss_generator
+
             loss.backward()
             self.optimizer.step()
-            train_loss += loss.item()
-            tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
+            train_loss_total += loss.item()
+            tbar.set_description('Segmentation + Generation loss: %.3f' % (train_loss_total / (i + 1)))
+            # tbar.set_description('Segmentation + Generation loss: %.3f' % train_loss_total)
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
 
             # Show 10 * 3 inference results each epoch
@@ -126,9 +153,9 @@ class Trainer(object):
                 global_step = i + num_img_tr * epoch
                 self.summary.visualize_image(self.writer, self.args.dataset, image, target, output, global_step)
 
-        self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
+        self.writer.add_scalar('train/total_loss_epoch', train_loss_total, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
-        print('Loss: %.3f' % train_loss)
+        print(f"Segmentation + Generation loss: {train_loss_total:.3f}, Generator loss: {generator_loss_total:.3f}")
 
         if self.args.no_val:
             # save checkpoint every epoch
@@ -140,11 +167,41 @@ class Trainer(object):
                 'best_pred': self.best_pred,
             }, is_best)
 
+    def training_discriminant(self, epoch):
+        discriminator_loss_total = 0.0
+        self.discriminator.train()
+        tbar = tqdm(self.train_loader)
+        num_img_tr = len(self.train_loader)
+
+        for i, sample in enumerate(tbar):
+            image, is_synthetic = sample['image'], sample['is_synthetic']
+            if self.args.cuda:
+                # image, target = image.to(self.gpu_ids), target.to(self.gpu_ids)  # My change to make it work on cuda:3
+                image, is_synthetic = image.to(self.gpu_ids), is_synthetic.to(self.gpu_ids)
+
+            # # self.scheduler(self.optimizer, i, epoch, self.best_pred)
+            self.optimizer_discriminator.zero_grad()
+            # with torch.no_grad():  # TODO check that freezes needed generator
+            output = self.model(image)
+            output_on_real = output[~is_synthetic]
+            output_on_fake = output[is_synthetic]
+            predicted_on_real = self.discriminator(output_on_real)
+            predicted_on_fake = self.discriminator(output_on_fake)
+
+            loss = self.criterion_gan.discriminator_loss(predicted_on_real, predicted_on_fake)
+            loss.backward()
+            self.optimizer_discriminator.step()
+            discriminator_loss_total += loss.item()
+            tbar.set_description('Discriminator loss: %.3f' % (discriminator_loss_total / (i + 1)))
+            # tbar.set_description('Discriminator loss: %.3f' % discriminator_loss_total)
+            # self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
+        print(f"Discriminator loss: {discriminator_loss_total:.3f}")
+
     def validation(self, epoch):
         self.model.eval()
         self.evaluator.reset()
         tbar = tqdm(self.val_loader, desc='\r')
-        test_loss = 0.0
+        val_loss = 0.0
         for i, sample in enumerate(tbar):
             image, target = sample['image'], sample['label']
             if self.args.cuda:
@@ -153,8 +210,9 @@ class Trainer(object):
             with torch.no_grad():
                 output = self.model(image)
             loss = self.criterion(output, target)
-            test_loss += loss.item()
-            tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
+            val_loss += loss.item()
+            tbar.set_description('Validation loss: %.3f' % (val_loss / (i + 1)))
+            # tbar.set_description('Validation loss: %.3f' % val_loss)
             pred = output.data.cpu().numpy()
             target = target.cpu().numpy()
             pred = np.argmax(pred, axis=1)
@@ -166,15 +224,15 @@ class Trainer(object):
         Acc_class = self.evaluator.Pixel_Accuracy_Class()
         mIoU = self.evaluator.Mean_Intersection_over_Union()
         FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
-        self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
+        self.writer.add_scalar('val/total_loss_epoch', val_loss, epoch)
         self.writer.add_scalar('val/mIoU', mIoU, epoch)
         self.writer.add_scalar('val/Acc', Acc, epoch)
         self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
         self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
-        print('Validation:')
+        # print('Validation:')
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
         print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
-        print('Loss: %.3f' % test_loss)
+        print('Validation Loss (segmentation): %.3f' % val_loss)
 
         new_pred = mIoU
         if new_pred > self.best_pred:
@@ -265,6 +323,15 @@ def main():
                         help='put the name of folder containing images to validate on')
     parser.add_argument('--test-data', type=str, default='val',
                         help='put the name of folder containing images to test on')
+    # Gan params
+    parser.add_argument('--use-gan', type=bool, default=False,
+                        help='Whether to use discriminator for training')
+    parser.add_argument('--lr-discriminator', type=float, default=0.01,
+                        help='learning rate for discriminator (default: auto)')
+    parser.add_argument('--momentum-discriminator', type=float, default=0.9,
+                        help='momentum for discriminator (default: 0.9)')
+    parser.add_argument('--weight-decay-discriminator', type=float, default=5e-4,
+                        help='w-decay for discriminator (default: 5e-4)')
 
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -313,7 +380,13 @@ def main():
     print('Starting Epoch:', trainer.args.start_epoch)
     print('Total Epoches:', trainer.args.epochs)
     for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
-        trainer.training(epoch)
+        trainer.training_segmentation(epoch)
+        # if args.use_gan and epoch % 20 == 0:
+        if args.use_gan and epoch % 2 == 0:
+            # Train discriminator once in 20 epoch for 5 epoch
+            # for _ in range(5):
+            for _ in range(1):
+                trainer.training_discriminant(epoch)
         if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
             trainer.validation(epoch)
 

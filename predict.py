@@ -107,6 +107,8 @@ def main():
     # Define on what to test
     parser.add_argument('--train-data', type=str, default="train",
                         help='put the name of folder containing images to train on')
+    parser.add_argument('--val-data', type=str, default='val',
+                        help='put the name of folder containing images to validate on')
     parser.add_argument('--test-data', type=str, default=None, required=True,
                         help='put the name of folder containing images to test on')
     parser.add_argument('--n_predictions', type=int, default=30,
@@ -171,10 +173,9 @@ def main():
     real_n = 0
     synthetic_n = 0
     for i, sample in enumerate(tbar):
-        image, target, path = sample['image'], sample['label'], sample['path'][0]
+        image, target, path, is_synthetic = sample['image'], sample['label'], sample['path'][0], sample['synthetic'][0]
 
-        label = "synthetic" if "night" in path else "real"
-        filename = f"{path.split('.')[0].split('/')[-1]} {label}"
+        label = "synthetic" if is_synthetic else "real"
         if label == 'real':
             real_n += 1
             if real_n > args.n_predictions:
@@ -187,6 +188,7 @@ def main():
         if args.cuda:
             # image, target = image.cuda(), target.cuda()
             image, target = image.to(args.gpu_ids), target.to(args.gpu_ids)  # My change to make it work on cuda:3
+
         with torch.no_grad():
             output = model(image)
 
@@ -202,6 +204,7 @@ def main():
         pred_rgb = decode_segmap(pred, args.dataset)
         # pred_rgb = (pred_rgb * 255).astype(np.uint8)
 
+        filename = f"{path.split('.')[0].split('/')[-1]} {label}"
         segmented[filename] = pred_rgb
 
         # Calculate statistics
@@ -229,8 +232,6 @@ def main():
 
     # print(segmented.keys())
     unique_scenes = np.unique([label.split(' ')[0] for label in segmented.keys()])
-    # print(len(unique_scenes))
-    # print(unique_scenes)
 
     for scene in unique_scenes:
         real = segmented[f"{scene} real"]

@@ -28,7 +28,7 @@ class Normalize(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class ToTensor(object):
@@ -49,7 +49,7 @@ class ToTensor(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class RandomHorizontalFlip(object):
@@ -63,7 +63,7 @@ class RandomHorizontalFlip(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class RandomRotate(object):
@@ -80,7 +80,7 @@ class RandomRotate(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class RandomGaussianBlur(object):
@@ -94,7 +94,7 @@ class RandomGaussianBlur(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class RandomScaleCrop(object):
@@ -133,7 +133,7 @@ class RandomScaleCrop(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class FixScaleCrop(object):
@@ -162,7 +162,7 @@ class FixScaleCrop(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
 
 
 class FixedResize(object):
@@ -181,4 +181,4 @@ class FixedResize(object):
         return {'image': img,
                 'label': mask,
                 'path': sample['path'],
-                'synthetic': sample['synthetic']}
+                'is_synthetic': sample['is_synthetic']}
